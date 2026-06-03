@@ -1,57 +1,165 @@
-# Spend Tracker
+# The Reasoning Layer
 
-A continuous observability layer for Astrid's LLM spend — tracking not just how much you're spending, but **where** and **why**.
+A platform-agnostic LLM routing intelligence layer. Sits in front of any agent or LLM call, logs every decision, and uses semantic memory to get smarter about which model to use over time.
 
-## The problem
+**Works with any agent platform.** Pull it down, wire it to your calls, watch your token spend drop.
 
-Most LLM cost tooling looks at the receipt and says "buy cheaper cuts." But that misses the real story. Some call sites are expensive because they're on the wrong model. Others are expensive because **they're not using the cache at all** — buying fresh at full price every single time instead of stocking the freezer.
+---
 
-Vellum's [llm-cost-optimizer](https://github.com/vellum-ai/llm-cost-optimizer) is a great start: it's a pull-based skill that maps call sites to model profiles. This tool is the continuous layer on top — time-series snapshots, cache hit rate analysis, and before/after comparison around optimization events.
+## What it does
 
-## What it surfaces
+Most LLM platforms route every call to the same model regardless of complexity. A memory filing task costs the same as a deep reasoning task. That's waste.
+
+The Reasoning Layer fixes this with three components:
 
 ```
-CALL SITE                        COST   $/CALL   CALLS   CACHE HIT
-────────────────────────────────────────────────────────────────────────
-Main Agent                   $  67.82  $0.0634    1070      93.3%
-Conversation Summarization   $  29.74  $0.0720     413       0.0% ⚠
-Memory Consolidation         $  25.89  $0.0304     852       0.0% ⚠
-Memory Extraction            $  16.54  $0.0537     308      36.6% ⚠
+Input Request
+      ↓
+[Classifier Node]     → what kind of task is this?
+      ↓
+[ES Memory Node]      → what model worked for similar requests before?
+      ↓
+[Router Node]         → pick the right model
+      ↓
+[Execution Node]      → run the call
+      ↓
+[Logger Node]         → record decision + outcome
+      ↑_______________|
+      feedback loop - gets smarter over time
 ```
 
-The `⚠` on Conversation Summarization and Memory Consolidation isn't a model problem — it's a caching problem. $55/week burning at 0% cache hit rate. Moving those to Haiku without fixing the caching first would save ~30% while leaving the structural waste untouched.
+---
 
-## Commands
+## Architecture
+
+### `reasoning_layer.py` - The Logger
+- SQLite-backed event store (swappable to Postgres)
+- Captures every LLM call: model used, tokens, cost, latency, quality score
+- `classifier_feedback` table for the learning loop
+- Backend-agnostic interface: swap SQLite for Postgres by changing one line
+
+### `es_layer.py` - The Memory Node
+- Elasticsearch-backed semantic search over past routing decisions
+- Embeds every request locally using `all-MiniLM-L6-v2` (no API calls, no cost)
+- `find_similar()` - find past requests semantically similar to the current one
+- `suggest_model()` - ask the graph what model worked best for requests like this
+- Inspired by Doppel's graph engine approach: past decisions as connected entities, quality scores as edge weights
+
+---
+
+## Setup
+
+### 1. Install dependencies
 
 ```bash
-python3 tracker.py poll          # snapshot current spend to SQLite
-python3 tracker.py show          # print call-site breakdown with cache hit rates
-python3 tracker.py trend         # cost delta between last two snapshots
-python3 tracker.py event "note"  # log an optimization event
-python3 tracker.py compare       # before/after the last event
-python3 tracker.py watch [secs]  # continuous polling daemon (default: 300s)
-
-python3 dashboard.py             # web UI at http://localhost:7331
+pip install elasticsearch sentence-transformers
 ```
 
-## The workflow
-
-```
-poll → event "your change" → apply change → poll → compare
-```
-
-That's the closed loop. The `llm-cost-optimizer` gives you the recommendation. This shows you whether it worked — and whether the real problem was the model or the cache.
-
-## Install as a Vellum skill
+### 2. Set environment variables
 
 ```bash
-assistant skills add sarahkatebyte/spend-tracker
+cp .env.example .env
+# fill in your ES_HOST and ES_API_KEY
 ```
 
-Then ask Astrid: *"Load the spend-tracker skill and run it"*
+Or export directly:
 
-## Requirements
+```bash
+export ES_HOST="https://your-deployment.us-central1.gcp.cloud.es.io:443"
+export ES_API_KEY="your-api-key"
+```
 
-- Vellum assistant (local)
-- `assistant` CLI
-- Python 3.x (stdlib only — no pip install needed)
+**Getting Elasticsearch:**
+- Free tier: [cloud.elastic.co](https://cloud.elastic.co) → Create deployment → Open Kibana → Stack Management → API Keys
+- Self-hosted: any ES 8.x instance works
+
+### 3. Run the smoke test
+
+```bash
+python3 es_layer.py
+```
+
+You should see the index created, test events indexed, similarity search results, and a model suggestion.
+
+---
+
+## Wiring it to your agent
+
+The logger is designed to wrap any LLM call:
+
+```python
+from reasoning_layer import ReasoningLogger, ReasoningEvent
+from es_layer import ESMemoryNode
+
+logger = ReasoningLogger()
+es = ESMemoryNode()
+
+# Before your LLM call - ask what worked before
+suggested_model = es.suggest_model(request_text)
+
+# Make your LLM call with the suggested model
+# ...
+
+# After your call - log the decision
+event_id = logger.log(ReasoningEvent(
+    call_site="your_call_site",
+    task_type="memory_ops",           # or reasoning_heavy, simple_retrieval, creative, structured_output
+    model_selected=suggested_model,
+    input_tokens=response.usage.input_tokens,
+    output_tokens=response.usage.output_tokens,
+    cost_usd=calculated_cost,
+    latency_ms=elapsed_ms,
+    request_text=request_text,
+))
+
+# Index it so future calls can learn from it
+es.index_event(
+    event_id=event_id,
+    request_text=request_text,
+    task_type="memory_ops",
+    model_selected=suggested_model,
+    cost_usd=calculated_cost,
+    quality_score=0.9,    # your quality signal here
+)
+```
+
+### Task types
+
+| Type | Description | Default tier |
+|------|-------------|--------------|
+| `reasoning_heavy` | Complex analysis, architecture, multi-step reasoning | Opus / highest |
+| `memory_ops` | Filing, consolidation, retrieval, extraction | Haiku / cheapest |
+| `simple_retrieval` | Lookups, short answers, structured output | Haiku / cheapest |
+| `creative` | Writing, generation, open-ended | Sonnet / mid |
+| `structured_output` | JSON, schema-constrained responses | Sonnet / mid |
+
+---
+
+## The learning loop
+
+Every logged event with a quality score becomes training data for future routing decisions. The `suggest_model()` function finds semantically similar past requests and returns the model that produced the best outcomes.
+
+Over time the layer stops being a rules engine and becomes experience-based. You don't retrain anything - the graph just gets denser.
+
+---
+
+## Roadmap
+
+- [ ] Classifier node (auto-detect task type from request text)
+- [ ] Router node (enforce routing rules + ES suggestions)
+- [ ] Postgres backend
+- [ ] Quality scorer (auto-evaluate response quality)
+- [ ] Dashboard (extend existing Streamlit spend tracker)
+- [ ] OpenTelemetry integration
+
+---
+
+## Built with
+
+- [Elasticsearch](https://elastic.co) - semantic memory and search
+- [sentence-transformers](https://www.sbert.net/) - local embeddings (all-MiniLM-L6-v2)
+- SQLite - transactional event log
+
+---
+
+*Built by Sarah Haddon. Platform-agnostic by design.*
