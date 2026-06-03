@@ -211,8 +211,21 @@ Over time the layer stops being a rules engine and becomes experience-based. You
 - [ ] Router node (enforce routing rules + ES suggestions)
 - [ ] Postgres backend
 - [ ] Quality scorer (auto-evaluate response quality)
-- [ ] Dashboard (extend existing Streamlit spend tracker)
+- [ ] GitHub Actions CI (pytest on every push)
 - [ ] OpenTelemetry integration
+
+### Kubernetes / EKS
+
+The current Terraform runs Elasticsearch on EC2. The natural next step is migrating to EKS so the full reasoning layer (app + ES) runs on Kubernetes - the same architecture used by production-grade threat intelligence platforms.
+
+The EKS path looks like:
+- ES running as a StatefulSet with persistent volume claims
+- Reasoning layer app as a Deployment behind a Service
+- Horizontal pod autoscaling on the app layer
+- Fluent Bit for log aggregation
+- Prometheus + Grafana for cluster observability
+
+EC2 is the right starting point. EKS is where this goes when it needs to scale.
 
 ---
 
