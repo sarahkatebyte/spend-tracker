@@ -1,0 +1,80 @@
+# Reasoning Layer - Compressor Config
+# ------------------------------------
+# Copy this to compressor_config.yaml and customize for your call sites.
+#
+# Load with:
+#   from compressor import CompressorNode
+#   compressor = CompressorNode.from_config("compressor_config.yaml")
+#
+# Then in your pipeline:
+#   result = compressor.compress(text, call_site="My Call Site")
+#   if result.blocked:
+#       return  # skip the LLM call entirely
+#   response = llm.call(result.compressed_text)
+#
+# Strategy options:
+#   head_tail     - Keep first + last chunk. Good for: title generation, labeling.
+#   notification  - Keep recent context only. Good for: push notifications, alerts.
+#   memory_ops    - Strip personality/soul sections. Good for: memory filing, recall.
+#   reply_summary - Head+tail balance (20/80). Good for: summarization, reply drafts.
+#   truncate      - Hard cut at max_tokens. Good for: anything else.
+
+# Set to false to disable all compression (passthrough mode - useful for debugging)
+enabled: true
+
+call_sites:
+
+  # --- BLOCK entire call sites (skip the LLM call, save 100% of tokens) ---
+
+  # "Reply Suggestion":         # example: disable AI reply suggestions entirely
+  #   blocked: true
+
+  # "Notification Digest":      # example: batch notifications instead of per-message LLM calls
+  #   blocked: true
+
+
+  # --- COMPRESS call sites (reduce input tokens before the call) ---
+
+  # "Conversation Title":
+  #   strategy: head_tail
+  #   max_tokens: 2000          # optional, default 2000
+
+  # "Notification Decision":
+  #   strategy: notification
+  #   max_tokens: 5000          # optional, default 5000
+
+  # "Memory Consolidation":
+  #   strategy: memory_ops
+  #   max_tokens: 3000          # optional, default 3000
+
+  # "Memory Retrieval":
+  #   strategy: memory_ops
+
+  # "Conversation Summarization":
+  #   strategy: reply_summary
+  #   max_tokens: 20000         # optional, default 15000
+
+  # "My Custom Agent":
+  #   strategy: truncate
+  #   max_tokens: 4000
+
+
+  # --- FULL EXAMPLE (uncomment and rename to match your actual call site names) ---
+
+  "My Title Generator":
+    strategy: head_tail
+
+  "My Reply Bot":
+    blocked: true
+
+  "My Memory Agent":
+    strategy: memory_ops
+    max_tokens: 3000
+
+  "My Notification Checker":
+    strategy: notification
+    max_tokens: 5000
+
+  "My Summarizer":
+    strategy: reply_summary
+    max_tokens: 15000

@@ -45,35 +45,97 @@ Input Request
 - `suggest_model()` - ask the graph what model worked best for requests like this
 - Inspired by Doppel's graph engine approach: past decisions as connected entities, quality scores as edge weights
 
+### `compressor.py` - The Compressor Node
+Strips unnecessary context before it hits the model. Can also block call sites entirely.
+
+Real data shows the problem: `Conversation Title` averages **91,816 input tokens** to generate a title. `Reply Suggestion` averages **125,077 tokens** for suggestions nobody asked for.
+
+```python
+from compressor import CompressorNode
+
+compressor = CompressorNode()
+result = compressor.compress(text, call_site="Conversation Title")
+
+if result.blocked:
+    return  # call site is disabled entirely - skip the LLM call
+    
+response = llm.call(result.compressed_text)  # lean context, not full history
+print(result.summary())
+# → [Conversation Title] conversation_title: 91,816 → 8,000 tokens (83,816 saved, 91% reduction)
+```
+
+**Customize via YAML** - no Python required:
+
+```bash
+cp compressor_config.example.yaml compressor_config.yaml
+# edit call site names + strategies to match your setup
+```
+
+```yaml
+call_sites:
+  "My Title Generator":
+    strategy: head_tail
+  "My Reply Bot":
+    blocked: true       # skip entirely - 100% token savings
+  "My Memory Agent":
+    strategy: memory_ops
+    max_tokens: 3000
+```
+
+```python
+compressor = CompressorNode.from_config("compressor_config.yaml")
+```
+
+| Strategy | Best for | Approach |
+|----------|----------|----------|
+| `head_tail` | Title generation, labeling | First + last chunk |
+| `notification` | Push alerts, decisions | Recent context only |
+| `memory_ops` | Filing, consolidation, retrieval | Strip personality sections |
+| `reply_summary` | Summarization, reply drafts | 20% head + 80% tail |
+| `truncate` | Everything else | Hard cut at token limit |
+
+### `rl.py` - The CLI
+```bash
+python3 rl.py stats                          # token + cost summary by model
+python3 rl.py viz                            # ASCII bar charts
+python3 rl.py search "summarize messages"    # semantic search with similarity scores
+python3 rl.py suggest "file memory notes"    # model recommendation from past data
+python3 rl.py cost                           # spend breakdown
+```
+
 ---
 
 ## Setup
 
-### 1. Install dependencies
+### Option A: Docker Compose (recommended - no account needed)
 
 ```bash
-pip install elasticsearch sentence-transformers
+git clone https://github.com/sarahkatebyte/spend-tracker
+cd spend-tracker
+docker compose up          # starts local Elasticsearch
+docker compose run cli viz # ASCII cost + savings charts
+docker compose run cli stats
+docker compose run cli search "summarize recent messages"
 ```
 
-### 2. Set environment variables
+Elasticsearch runs locally on port 9200. No API key, no cloud account. Your existing `spend.db` is mounted automatically.
+
+### Option B: Elastic Cloud
 
 ```bash
-cp .env.example .env
-# fill in your ES_HOST and ES_API_KEY
+pip install -r requirements.txt
 ```
 
-Or export directly:
+Set environment variables:
 
 ```bash
 export ES_HOST="https://your-deployment.us-central1.gcp.cloud.es.io:443"
 export ES_API_KEY="your-api-key"
 ```
 
-**Getting Elasticsearch:**
-- Free tier: [cloud.elastic.co](https://cloud.elastic.co) → Create deployment → Open Kibana → Stack Management → API Keys
-- Self-hosted: any ES 8.x instance works
+**Getting credentials:** [cloud.elastic.co](https://cloud.elastic.co) → Create deployment → Kibana → Stack Management → API Keys
 
-### 3. Run the smoke test
+Then run the smoke test:
 
 ```bash
 python3 es_layer.py

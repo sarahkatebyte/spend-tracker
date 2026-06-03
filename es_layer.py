@@ -6,11 +6,15 @@ Adds semantic memory and graph-style routing intelligence to the Reasoning Layer
 Inspired by Doppel's graph engine approach: treat past routing decisions as
 connected entities. Find similar past requests, surface what worked, route smarter.
 
-Setup:
+Setup (local - no account needed):
+    docker compose up
+    ES_HOST=http://localhost:9200 python3 es_layer.py
+
+Setup (Elastic Cloud):
     pip install elasticsearch sentence-transformers
     Set env vars:
-        ES_CLOUD_ID=your-cloud-id
-        ES_API_KEY=your-api-key
+        ES_HOST=https://<deployment-id>.<region>.gcp.cloud.es.io:443
+        ES_API_KEY=your-api-key  # optional for local dev
 
 Usage:
     from es_layer import ESMemoryNode
@@ -87,24 +91,19 @@ class ESMemoryNode:
     """
 
     def __init__(self):
-        if not ES_API_KEY:
-            raise EnvironmentError(
-                "Set ES_API_KEY environment variable.\n"
-                "Get this from cloud.elastic.co → your deployment → API Keys."
-            )
-        # Use direct endpoint - more reliable than cloud_id parsing
-        # Get yours from cloud.elastic.co → deployment → Copy endpoint
         es_host = os.environ.get("ES_HOST")
         if not es_host:
             raise EnvironmentError(
                 "Set ES_HOST environment variable.\n"
-                "Get this from cloud.elastic.co → your deployment → Copy endpoint.\n"
-                "Format: https://<deployment-id>.<region>.gcp.cloud.es.io:443"
+                "  Local (docker compose): ES_HOST=http://localhost:9200\n"
+                "  Elastic Cloud: ES_HOST=https://<deployment-id>.<region>.gcp.cloud.es.io:443"
             )
-        self.client = Elasticsearch(
-            hosts=[es_host],
-            api_key=ES_API_KEY,
-        )
+        # API key is optional - not needed for local dev (security disabled)
+        kwargs = {"hosts": [es_host]}
+        if ES_API_KEY:
+            kwargs["api_key"] = ES_API_KEY
+        self.client = Elasticsearch(**kwargs)
+
         self.encoder = SentenceTransformer(EMBED_MODEL)
         self._ensure_index()
 

@@ -1,0 +1,4 @@
+elasticsearch>=8.0.0
+sentence-transformers>=2.2.0
+colorama>=0.4.6
+pyyaml>=6.0
