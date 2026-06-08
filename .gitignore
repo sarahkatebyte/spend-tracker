@@ -11,3 +11,7 @@ __pycache__/
 *.tfstate.lock.info
 terraform.tfvars
 .terraform.lock.hcl
+IP-EVIDENCE-2026-05-22.md
+spend.db
+spend.db
+__pycache__/

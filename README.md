@@ -43,7 +43,7 @@ Input Request
 - Embeds every request locally using `all-MiniLM-L6-v2` (no API calls, no cost)
 - `find_similar()` - find past requests semantically similar to the current one
 - `suggest_model()` - ask the graph what model worked best for requests like this
-- Inspired by Doppel's graph engine approach: past decisions as connected entities, quality scores as edge weights
+- Past decisions as connected entities, quality scores as edge weights — gets smarter with every call
 
 ### `compressor.py` - The Compressor Node
 Strips unnecessary context before it hits the model. Can also block call sites entirely.
@@ -110,8 +110,8 @@ python3 rl.py cost                           # spend breakdown
 ### Option A: Docker Compose (recommended - no account needed)
 
 ```bash
-git clone https://github.com/sarahkatebyte/spend-tracker
-cd spend-tracker
+git clone https://github.com/sarahkatebyte/reasoning-layer
+cd reasoning-layer
 docker compose up          # starts local Elasticsearch
 docker compose run cli viz # ASCII cost + savings charts
 docker compose run cli stats
